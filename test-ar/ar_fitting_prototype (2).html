@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Virtual Try-On</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 1200px;
+            width: 100%;
+        }
+        h1 {
+            text-align: center;
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .main-content {
+            display: flex;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+        .camera-section {
+            flex: 1;
+            min-width: 300px;
+        }
+        .video-container {
+            position: relative;
+            width: 100%;
+            background: #000;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        #videoElement {
+            width: 100%;
+            height: auto;
+            display: block;
+            transform: scaleX(-1);
+        }
+        #canvasElement {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            transform: scaleX(-1);
+        }
+        #outfitCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            transform: scaleX(-1);
+        }
+        .debug-info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: #0f0;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            z-index: 100;
+        }
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+        .btn-success {
+            background: #10b981;
+            color: white;
+        }
+        .btn-success:hover {
+            background: #059669;
+        }
+        .outfit-selector {
+            flex: 0 0 250px;
+        }
+        .outfit-selector h3 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+        .outfit-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        .outfit-item {
+            background: #f8f9fa;
+            border: 3px solid transparent;
+            border-radius: 10px;
+            padding: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+        }
+        .outfit-item:hover {
+            border-color: #667eea;
+            transform: scale(1.05);
+        }
+        .outfit-item.active {
+            border-color: #667eea;
+            background: #e8eaf6;
+            box-shadow: 0 0 20px rgba(102, 126, 234, 0.3);
+        }
+        .outfit-preview {
+            width: 100%;
+            height: 80px;
+            background: white;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
+            margin-bottom: 8px;
+        }
+        .outfit-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+        }
+        .status {
+            text-align: center;
+            padding: 15px;
+            margin-top: 20px;
+            background: #f0f9ff;
+            border-radius: 10px;
+            color: #0369a1;
+            font-weight: 600;
+        }
+        .status.error {
+            background: #fee;
+            color: #c00;
+        }
+        .status.success {
+            background: #dcfce7;
+            color: #166534;
+        }
+        .captured-photo {
+            margin-top: 20px;
+            text-align: center;
+        }
+        .captured-photo img {
+            max-width: 100%;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        .hidden {
+            display: none;
+        }
+        .toggle-debug {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 11px;
+            z-index: 101;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>👕 AR Virtual Try-On</h1>
+        <p class="subtitle">Coba outfit langsung dari kamera!</p>
+        
+        <div class="main-content">
+            <div class="camera-section">
+                <div class="video-container">
+                    <video id="videoElement" autoplay playsinline></video>
+                    <canvas id="canvasElement"></canvas>
+                    <canvas id="outfitCanvas"></canvas>
+                    <div id="debugInfo" class="debug-info hidden">
+                        <div>Status: <span id="poseStatus">Waiting...</span></div>
+                        <div>Outfit: <span id="currentOutfit">-</span></div>
+                        <div>Shoulders: <span id="shoulderDetect">-</span></div>
+                        <div>Hips: <span id="hipDetect">-</span></div>
+                    </div>
+                    <button class="toggle-debug" id="toggleDebug">Show Debug</button>
+                </div>
+                
+                <div class="controls">
+                    <button class="btn-primary" id="startBtn">📷 Mulai Kamera</button>
+                    <button class="btn-success hidden" id="captureBtn">📸 Ambil Foto</button>
+                    <button class="btn-secondary hidden" id="stopBtn">⏹️ Stop</button>
+                </div>
+                
+                <div id="status" class="status hidden"></div>
+                
+                <div id="capturedPhoto" class="captured-photo hidden">
+                    <h3>Hasil Foto:</h3>
+                    <img id="photoImg" src="" alt="Captured Photo">
+                    <div class="controls">
+                        <button class="btn-primary" id="downloadBtn">💾 Download</button>
+                        <button class="btn-secondary" id="newPhotoBtn">🔄 Foto Baru</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="outfit-selector">
+                <h3>Pilih Outfit:</h3>
+                <div class="outfit-grid">
+                    <div class="outfit-item active" data-outfit="tshirt">
+                        <div class="outfit-preview"></div>
+                        <div class="outfit-name">baju</div>
+                    </div>
+                    <div class="outfit-item" data-outfit="jacket">
+                        <div class="outfit-preview"></div>
+                        <div class="outfit-name">acket</div>
+                    </div>
+                    <div class="outfit-item" data-outfit="dress">
+                        <div class="outfit-preview"></div>
+                        <div class="outfit-name">ress</div>
+                    </div>
+                    <div class="outfit-item" data-outfit="hoodie">
+                        <div class="outfit-preview"></div>
+                        <div class="outfit-name">hoodie</div>
+                    </div>
+                </div>
+                <div style="margin-top: 20px; padding: 15px; background: #fff3cd; border-radius: 10px; font-size: 13px;">
+                    <!-- <strong>💡 Tips:</strong><br>
+                    • Berdiri 1.5-2m dari kamera<br>
+                    • Pastikan tubuh atas terlihat jelas<br>
+                    • Cahaya cukup terang<br>
+                    • Outfit akan muncul semi-transparan -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let camera = null;
+        let pose = null;
+        let selectedOutfit = 'tshirt';
+        let isRunning = false;
+        let poseDetected = false;
+        
+        const videoElement = document.getElementById('videoElement');
+        const canvasElement = document.getElementById('canvasElement');
+        const outfitCanvas = document.getElementById('outfitCanvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const outfitCtx = outfitCanvas.getContext('2d');
+        const startBtn = document.getElementById('startBtn');
+        const captureBtn = document.getElementById('captureBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const status = document.getElementById('status');
+        const debugInfo = document.getElementById('debugInfo');
+        const toggleDebugBtn = document.getElementById('toggleDebug');
+        
+        // Outfit colors
+        const outfitColors = {
+            'tshirt': '#3b82f6',
+            'jacket': '#ef4444',
+            'dress': '#ec4899',
+            'hoodie': '#10b981'
+        };
+        
+        // Toggle debug info
+        toggleDebugBtn.addEventListener('click', () => {
+            debugInfo.classList.toggle('hidden');
+            toggleDebugBtn.textContent = debugInfo.classList.contains('hidden') ? 'Show Debug' : 'Hide Debug';
+        });
+        
+        // Outfit selector
+        document.querySelectorAll('.outfit-item').forEach(item => {
+            item.addEventListener('click', function() {
+                document.querySelectorAll('.outfit-item').forEach(i => i.classList.remove('active'));
+                this.classList.add('active');
+                selectedOutfit = this.dataset.outfit;
+                document.getElementById('currentOutfit').textContent = selectedOutfit.toUpperCase();
+                showStatus('✨ Outfit berganti: ' + selectedOutfit.toUpperCase(), false);
+            });
+        });
+        
+        function showStatus(message, isError = false) {
+            status.textContent = message;
+            status.classList.remove('hidden');
+            status.classList.remove('error', 'success');
+            if (isError) {
+                status.classList.add('error');
+            } else if (message.includes('✅') || message.includes('✨')) {
+                status.classList.add('success');
+            }
+        }
+        
+        function updateDebugInfo(landmarks) {
+            if (landmarks) {
+                document.getElementById('poseStatus').textContent = '✅ DETECTED';
+                document.getElementById('poseStatus').style.color = '#0f0';
+                
+                const leftShoulder = landmarks[11];
+                const rightShoulder = landmarks[12];
+                const leftHip = landmarks[23];
+                const rightHip = landmarks[24];
+                
+                document.getElementById('shoulderDetect').textContent = 
+                    (leftShoulder && rightShoulder) ? '✅ YES' : '❌ NO';
+                document.getElementById('hipDetect').textContent = 
+                    (leftHip && rightHip) ? '✅ YES' : '❌ NO';
+            } else {
+                document.getElementById('poseStatus').textContent = '❌ NOT DETECTED';
+                document.getElementById('poseStatus').style.color = '#f00';
+                document.getElementById('shoulderDetect').textContent = '❌ NO';
+                document.getElementById('hipDetect').textContent = '❌ NO';
+            }
+        }
+        
+        function drawOutfit(results) {
+            outfitCtx.save();
+            outfitCtx.clearRect(0, 0, outfitCanvas.width, outfitCanvas.height);
+            
+            if (results.poseLandmarks) {
+                const landmarks = results.poseLandmarks;
+                updateDebugInfo(landmarks);
+                
+                // Get key points
+                const leftShoulder = landmarks[11];
+                const rightShoulder = landmarks[12];
+                const leftHip = landmarks[23];
+                const rightHip = landmarks[24];
+                const leftElbow = landmarks[13];
+                const rightElbow = landmarks[14];
+                
+                if (leftShoulder && rightShoulder && leftHip && rightHip) {
+                    poseDetected = true;
+                    
+                    // Calculate dimensions
+                    const shoulderWidth = Math.abs(rightShoulder.x - leftShoulder.x) * outfitCanvas.width;
+                    const bodyHeight = Math.abs(leftHip.y - leftShoulder.y) * outfitCanvas.height;
+                    
+                    const centerX = ((leftShoulder.x + rightShoulder.x) / 2) * outfitCanvas.width;
+                    const topY = leftShoulder.y * outfitCanvas.height;
+                    const bottomY = ((leftHip.y + rightHip.y) / 2) * outfitCanvas.height;
+                    
+                    // Set outfit color and opacity (lebih solid)
+                    outfitCtx.fillStyle = outfitColors[selectedOutfit];
+                    outfitCtx.globalAlpha = 0.75; // Increased from 0.6
+                    
+                    // Add shadow for depth
+                    outfitCtx.shadowColor = 'rgba(0,0,0,0.3)';
+                    outfitCtx.shadowBlur = 10;
+                    outfitCtx.shadowOffsetX = 3;
+                    outfitCtx.shadowOffsetY = 3;
+                    
+                    if (selectedOutfit === 'tshirt') {
+                        // T-Shirt with sleeves
+                        outfitCtx.beginPath();
+                        // Main body
+                        outfitCtx.moveTo(centerX - shoulderWidth * 0.6, topY + 20);
+                        outfitCtx.lineTo(centerX + shoulderWidth * 0.6, topY + 20);
+                        outfitCtx.lineTo(centerX + shoulderWidth * 0.7, bottomY);
+                        outfitCtx.lineTo(centerX - shoulderWidth * 0.7, bottomY);
+                        outfitCtx.closePath();
+                        outfitCtx.fill();
+                        
+                        // Sleeves
+                        if (leftElbow && rightElbow) {
+                            // Left sleeve
+                            outfitCtx.beginPath();
+                            outfitCtx.moveTo(leftShoulder.x * outfitCanvas.width, topY + 20);
+                            outfitCtx.lineTo(leftElbow.x * outfitCanvas.width, leftElbow.y * outfitCanvas.height);
+                            outfitCtx.lineTo(leftElbow.x * outfitCanvas.width - 30, leftElbow.y * outfitCanvas.height);
+                            outfitCtx.lineTo(leftShoulder.x * outfitCanvas.width - 30, topY + 20);
+                            outfitCtx.closePath();
+                            outfitCtx.fill();
+                            
+                            // Right sleeve
+                            outfitCtx.beginPath();
+                            outfitCtx.moveTo(rightShoulder.x * outfitCanvas.width, topY + 20);
+                            outfitCtx.lineTo(rightElbow.x * outfitCanvas.width, rightElbow.y * outfitCanvas.height);
+                            outfitCtx.lineTo(rightElbow.x * outfitCanvas.width + 30, rightElbow.y * outfitCanvas.height);
+                            outfitCtx.lineTo(rightShoulder.x * outfitCanvas.width + 30, topY + 20);
+                            outfitCtx.closePath();
+                            outfitCtx.fill();
+                        }
+                        
+                    } else if (selectedOutfit === 'jacket') {
+                        // Jacket with collar and zipper line
+                        outfitCtx.fillRect(
+                            centerX - shoulderWidth * 0.9,
+                            topY - 10,
+                            shoulderWidth * 1.8,
+                            bodyHeight * 1.3
+                        );
+                        
+                        // Zipper line
+                        outfitCtx.globalAlpha = 1;
+                        outfitCtx.strokeStyle = '#333';
+                        outfitCtx.lineWidth = 3;
+                        outfitCtx.beginPath();
+                        outfitCtx.moveTo(centerX, topY);
+                        outfitCtx.lineTo(centerX, bottomY + bodyHeight * 0.3);
+                        outfitCtx.stroke();
+                        
+                    } else if (selectedOutfit === 'dress') {
+                        // Dress (A-line shape)
+                        outfitCtx.beginPath();
+                        outfitCtx.moveTo(centerX - shoulderWidth * 0.6, topY);
+                        outfitCtx.lineTo(centerX + shoulderWidth * 0.6, topY);
+                        outfitCtx.lineTo(centerX + shoulderWidth * 1.4, bottomY + bodyHeight * 0.8);
+                        outfitCtx.lineTo(centerX - shoulderWidth * 1.4, bottomY + bodyHeight * 0.8);
+                        outfitCtx.closePath();
+                        outfitCtx.fill();
+                        
+                    } else if (selectedOutfit === 'hoodie') {
+                        // Hoodie body
+                        outfitCtx.fillRect(
+                            centerX - shoulderWidth * 0.9,
+                            topY - 20,
+                            shoulderWidth * 1.8,
+                            bodyHeight * 1.2
+                        );
+                        
+                        // Hood
+                        outfitCtx.beginPath();
+                        outfitCtx.arc(centerX, topY - 30, shoulderWidth * 0.7, Math.PI, 0, false);
+                        outfitCtx.fill();
+                        
+                        // Drawstring
+                        outfitCtx.globalAlpha = 1;
+                        outfitCtx.strokeStyle = '#333';
+                        outfitCtx.lineWidth = 2;
+                        outfitCtx.beginPath();
+                        outfitCtx.moveTo(centerX - 20, topY + 30);
+                        outfitCtx.lineTo(centerX + 20, topY + 30);
+                        outfitCtx.stroke();
+                    }
+                    
+                    if (!poseDetected) {
+                        showStatus(' Body terdeteksi! Outfit sedang di-render...', false);
+                        poseDetected = true;
+                    }
+                } else {
+                    poseDetected = false;
+                    updateDebugInfo(null);
+                }
+            } else {
+                updateDebugInfo(null);
+            }
+            
+            outfitCtx.restore();
+        }
+        
+        function onResults(results) {
+            if (!isRunning) return;
+            
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            
+            // Draw camera feed (mirrored)
+            canvasCtx.scale(-1, 1);
+            canvasCtx.drawImage(results.image, -canvasElement.width, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.scale(-1, 1);
+            
+            if (results.poseLandmarks) {
+                // Draw pose landmarks
+                drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#00FF00', lineWidth: 3});
+                drawLandmarks(canvasCtx, results.poseLandmarks, {color: '#FF0000', lineWidth: 2, radius: 4});
+            }
+            
+            canvasCtx.restore();
+            
+            // Draw outfit overlay (on separate canvas)
+            drawOutfit(results);
+        }
+        
+        async function startCamera() {
+            try {
+                showStatus('Memulai kamera & loading AI model...');
+                
+                pose = new Pose({
+                    locateFile: (file) => {
+                        return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
+                    }
+                });
+                
+                pose.setOptions({
+                    modelComplexity: 1,
+                    smoothLandmarks: true,
+                    enableSegmentation: false,
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5
+                });
+                
+                pose.onResults(onResults);
+                
+                camera = new Camera(videoElement, {
+                    onFrame: async () => {
+                        if (isRunning) {
+                            await pose.send({image: videoElement});
+                        }
+                    },
+                    width: 640,
+                    height: 480
+                });
+                
+                await camera.start();
+                
+                // Set canvas sizes to match video
+                setTimeout(() => {
+                    canvasElement.width = videoElement.videoWidth;
+                    canvasElement.height = videoElement.videoHeight;
+                    outfitCanvas.width = videoElement.videoWidth;
+                    outfitCanvas.height = videoElement.videoHeight;
+                }, 500);
+                
+                isRunning = true;
+                startBtn.classList.add('hidden');
+                captureBtn.classList.remove('hidden');
+                stopBtn.classList.remove('hidden');
+                document.getElementById('currentOutfit').textContent = selectedOutfit.toUpperCase();
+                showStatus('Kamer aktif! Berdiri dan pose di depan kamera. Outfit akan muncul semi-transparan di tubuh kamu.');
+                
+            } catch (error) {
+                showStatus('error' + error.message, true);
+                console.error(error);
+            }
+        }
+        
+        function capturePhoto() {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvasElement.width;
+            tempCanvas.height = canvasElement.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            // Draw mirrored video
+            tempCtx.save();
+            tempCtx.scale(-1, 1);
+            tempCtx.drawImage(videoElement, -tempCanvas.width, 0, tempCanvas.width, tempCanvas.height);
+            tempCtx.restore();
+            
+            // Draw outfit overlay (already mirrored)
+            tempCtx.save();
+            tempCtx.scale(-1, 1);
+            tempCtx.drawImage(outfitCanvas, -tempCanvas.width, 0, tempCanvas.width, tempCanvas.height);
+            tempCtx.restore();
+            
+            const photoImg = document.getElementById('photoImg');
+            photoImg.src = tempCanvas.toDataURL('image/png');
+            
+            document.getElementById('capturedPhoto').classList.remove('hidden');
+            showStatus('✅ Foto berhasil diambil!');
+        }
+        
+        function stopCamera() {
+            isRunning = false;
+            if (camera) {
+                camera.stop();
+            }
+            const stream = videoElement.srcObject;
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+            startBtn.classList.remove('hidden');
+            captureBtn.classList.add('hidden');
+            stopBtn.classList.add('hidden');
+            showStatus('⏹Kamera dihentikan.');
+        }
+        
+        startBtn.addEventListener('click', startCamera);
+        captureBtn.addEventListener('click', capturePhoto);
+        stopBtn.addEventListener('click', stopCamera);
+        
+        document.getElementById('downloadBtn').addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.download = 'ar-tryon-' + selectedOutfit + '-' + Date.now() + '.png';
+            link.href = document.getElementById('photoImg').src;
+            link.click();
+            showStatus('Foto berhasil di-download!');
+        });
+        
+        document.getElementById('newPhotoBtn').addEventListener('click', () => {
+            document.getElementById('capturedPhoto').classList.add('hidden');
+            showStatus('Siap ambil foto baru!');
+        });
+    </script>
+</body>
+</html>
